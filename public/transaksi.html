@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Transaksi Otomatis</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body class="p-4">
+  <div class="container">
+    <h2>🛒 Menu Transaksi Otomatis</h2>
+
+    <!-- Scan QR -->
+    <button class="btn btn-success mt-3" onclick="startScanner()">Scan QR</button>
+    <div id="reader" style="width:300px;" class="my-3"></div>
+
+    <!-- Input Kode Otomatis -->
+    <form id="manualForm" class="row g-2 align-items-center mt-3">
+      <div class="col-md-4">
+        <input type="text" id="kodeInput" class="form-control" placeholder="Kode Barang" autocomplete="off">
+      </div>
+      <div class="col-md-4">
+        <input type="text" id="namaAuto" class="form-control" placeholder="Nama Barang" readonly>
+      </div>
+      <div class="col-md-2">
+        <input type="text" id="hargaAuto" class="form-control" placeholder="Harga" readonly>
+      </div>
+      <div class="col-md-2">
+        <input type="number" id="qtyInput" class="form-control" placeholder="Qty" value="1" min="1">
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-warning mt-2">Tambah ke Keranjang</button>
+      </div>
+    </form>
+
+    <!-- Daftar Keranjang -->
+    <h4 class="mt-4">Daftar Belanja</h4>
+    <table class="table mt-2">
+      <thead><tr><th>Kode</th><th>Nama</th><th>Harga</th><th>Qty</th><th>Subtotal</th></tr></thead>
+      <tbody id="keranjang"></tbody>
+    </table>
+    <div class="text-end fw-bold">Total: Rp <span id="total">0</span></div>
+    <button class="btn btn-primary mt-3" onclick="cetak()">🖨️ Cetak Struk</button>
+  </div>
+
+<script>
+  let keranjang = [], total = 0, itemCache = {};
+
+  async function fetchAllBarang() {
+    if (Object.keys(itemCache).length) return;
+    const res = await fetch('/ambil-barang');
+    const list = await res.json();
+    list.forEach(b => itemCache[b.kode] = b);
+  }
+
+  document.getElementById("kodeInput").addEventListener("input", async function(){
+    const kode = this.value.trim();
+    if (kode.length === 0) {
+      document.getElementById("namaAuto").value = '';
+      document.getElementById("hargaAuto").value = '';
+      return;
+    }
+    await fetchAllBarang();
+    const item = itemCache[kode];
+    if (item) {
+      document.getElementById("namaAuto").value = item.nama;
+      document.getElementById("hargaAuto").value = item.harga.toLocaleString();
+    } else {
+      document.getElementById("namaAuto").value = '❌ Tidak ditemukan';
+      document.getElementById("hargaAuto").value = '-';
+    }
+  });
+
+  document.getElementById("manualForm").addEventListener("submit", (e)=>{
+    e.preventDefault();
+    const kode = document.getElementById("kodeInput").value.trim();
+    const qty = parseInt(document.getElementById("qtyInput").value);
+    const item = itemCache[kode];
+    if (!item) return alert("Kode barang belum valid!");
+    tambahBarang(item, qty);
+    e.target.reset();
+    document.getElementById("namaAuto").value = '';
+    document.getElementById("hargaAuto").value = '';
+  });
+
+  async function tambahBarang(item, qty) {
+    const subtotal = item.harga * qty;
+    keranjang.push({ ...item, qty, subtotal });
+
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${item.kode}</td>
+      <td>${item.nama}</td>
+      <td>Rp ${item.harga.toLocaleString()}</td>
+      <td>${qty}</td>
+      <td>Rp ${subtotal.toLocaleString()}</td>
+    `;
+    document.getElementById("keranjang").appendChild(row);
+
+    total += subtotal;
+    document.getElementById("total").textContent = total.toLocaleString();
+  }
+
+  function startScanner() {
+    const qr = new Html5Qrcode("reader");
+    qr.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, async (text) => {
+      qr.stop();
+      await fetchAllBarang();
+      const item = itemCache[text];
+      if (item) {
+        tambahBarang(item, 1);
+      } else {
+        alert('Barang belum ada di data. Silakan tambah dulu via menu Admin.');
+      }
+    });
+  }
+
+  function cetak() {
+    const win = window.open('', '_blank');
+    win.document.write(`
+      <h2>🧾 Struk Transaksi</h2>
+      <table border="1" cellspacing="0" cellpadding="8">
+        <tr><th>Kode</th><th>Nama</th><th>Harga</th><th>Qty</th><th>Subtotal</th></tr>
+        ${keranjang.map(b => `
+          <tr>
+            <td>${b.kode}</td>
+            <td>${b.nama}</td>
+            <td>Rp ${b.harga.toLocaleString()}</td>
+            <td>${b.qty}</td>
+            <td>Rp ${b.subtotal.toLocaleString()}</td>
+          </tr>`).join('')}
+      </table>
+      <h3>Total: Rp ${total.toLocaleString()}</h3>
+    `);
+    win.document.close();
+    win.print();
+  }
+
+  // Cache data segera saat halaman terbuka
+  fetchAllBarang();
+</script>
+</body>
+</html>
